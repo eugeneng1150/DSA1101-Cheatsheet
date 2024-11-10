@@ -2,7 +2,7 @@ market = read.csv("Smarket.csv")
 dim(market)
 head(market)
 library("class")
-set.seed(1)
+set.seed(1101)
 #-------------------------- PREPARING DATA TO FORM MODEL AND TO TEST MODEL---------------------------
 # REMEMBER TO SCALE THE DATA PLEASE SCALE PLEASE DONT FORGET
 # Mostly scale quantitative variables
@@ -240,7 +240,7 @@ X <- data_stand[, c("age", "node")]  # #CHANGE THIS
 Y <- factor(data$survival.status, levels = c(1, 2)) #CHANGE THIS INCLUDING LEVELS
 
 # Set up cross-validation with 3 folds
-n_folds <- 3        #CHANGE THIS
+n_folds <- 5        #CHANGE THIS
 folds_j <- sample(rep(1:n_folds, length.out = dim(data)[1]))  # CHANGE THIS
 
 # Initialize vectors to store average Type I, Type II error rates, accuracy, and precision
@@ -306,21 +306,12 @@ print(ave_precision)
 #######PLOT IT AND FIND BEST K####
 print(ave_accuracy)
 max(ave_accuracy)
-index <- which(ave_accuracy == max(ave_accuracy))
+best_k <- which(ave_accuracy == max(ave_accuracy)); best_k
 plot(x=1:100, ave_accuracy)
 abline(v = index , col= "red")
 
-#------------WHEN ADDING A NEW DATA POINT, NEED TO STANDERDIZE WITH
-# THE WHOLE DATA THEN EXTRACT THE LAST ROW WHICH IS THE ADDED ROW-------
-new = data.frame(X1 = 83, X2 = 57, X3= 2, X4 = 3)
-standard = scale(rbind(data[,2:5], new) ) 
-# add the new point to the x-values of the whole data, then standardizing all
-standard.new = standard[90,] # x values of the new point after standardizing
-standard.new
-#using the classifier to predict for the new point:
-test = knn(train=standardized.X, test=standard.new, cl=data[,1], k=3)
-test
 
+#------------WHEN ADDING A NEW DATA POINT, NEED TO STANDERDIZE WITH
 #----------------WHAT HAPPENS IF U NEED TO ADD IN A DATAFRAME TO PREDICT OUTCOME---------
 # Load and preprocess data
 data <- read.csv("data2.csv")
@@ -335,7 +326,7 @@ combined_data <- rbind(data[, c("age", "node")], new)
 standard <- scale(combined_data)
 
 # Extract the standardized values of the new data points (the last rows)
-standard_new <- standard[(nrow(standard) - 1):nrow(standard), ]  # The last two rows
+standard_new <- standard[(nrow(standard) - 1):nrow(standard), ]  # The last two rows # CHANGE IF NEEDED
 
 # Extract the standardized values of the original data
 standardized_X <- standard[-c((nrow(standard) - 1):nrow(standard)), ]  # All rows except the last two
@@ -348,5 +339,74 @@ predictions <- knn(train = standardized_X, test = standard_new, cl = data$surviv
 # Print the prediction results
 print("The predicted survival status for the new data points is:")
 print(predictions)
+
+
+################## PLOTTING ROC CURVE FOR KNN ######################
+# Define Y with correct levels
+Y <- factor(data$survival.status, levels = c(1, 2))  # Assuming 1 = negative, 2 = positive
+
+# Perform KNN prediction
+predicted_class_knn <- knn(train = X, test = X, cl = Y, k = best_k, prob = TRUE)
+
+# Extract probabilities for the positive class ("2" in this case)
+probabilities_knn <- ifelse(predicted_class_knn == "2", 
+                            as.numeric(attr(predicted_class_knn, "prob")), 
+                            1 - as.numeric(attr(predicted_class_knn, "prob")))
+
+# Create the prediction object using Y as the true labels
+pred_knn <- prediction(probabilities_knn, Y)
+
+# Calculate the ROC curve and AUC
+roc_knn <- performance(pred_knn, "tpr", "fpr")
+auc_knn <- performance(pred_knn, measure = "auc")
+auc_knn_value <- auc_knn@y.values[[1]]  # Extract AUC value
+
+# Plot the ROC curve
+plot(roc_knn, col = "red", main = paste("Area under the curve:", round(auc_value_knn, 4)))
+
+############### PLOTTING THRESHOLD FOR KNN #################### (unlikely) (COPY CODE ABV TOO)
+# Assuming `pred_knn` and `roc_knn` are already calculated
+
+# Step 1: Extract alpha (threshold), TPR, and FPR values from the ROC object for KNN
+alpha_knn <- round(as.numeric(unlist(roc_knn@alpha.values)), 4)  # Threshold values (alpha)
+tpr_knn <- round(as.numeric(unlist(roc_knn@y.values)), 4)        # True Positive Rate (TPR)
+fpr_knn <- round(as.numeric(unlist(roc_knn@x.values)), 4)        # False Positive Rate (FPR)
+
+# Step 2: Calculate Youden's J statistic for each threshold
+youden_j_knn <- tpr_knn - fpr_knn  # Youden's J = TPR - FPR
+
+# Step 3: Find the optimal threshold based on the maximum Youden's J
+optimal_index_knn <- which.max(youden_j_knn)
+optimal_alpha_knn <- alpha_knn[optimal_index_knn]
+optimal_youden_j_knn <- youden_j_knn[optimal_index_knn]
+
+# Print the optimal threshold based on Youden's J
+cat("Optimal Threshold (Youden's J) for KNN:", optimal_alpha_knn, "\n")
+
+# Step 4: Plot TPR against thresholds on the left y-axis
+plot(alpha_knn, tpr_knn, type = "l", col = "blue", lwd = 2,
+     xlab = "Threshold", ylab = "True Positive Rate", ylim = c(0, 1),
+     main = "Threshold vs. TPR, FPR, and Youden's J (KNN)")
+
+# Step 5: Overlay FPR on the same plot but use a different y-axis
+par(new = TRUE)
+plot(alpha_knn, fpr_knn, type = "l", col = "red", lwd = 2, axes = FALSE, xlab = "", ylab = "", ylim = c(0, 1))
+axis(side = 4)  # Add a secondary y-axis on the right for FPR
+mtext("False Positive Rate", side = 4, line = 3, col = "red")
+
+# Step 6: Add Youden's J line on the left y-axis
+lines(alpha_knn, youden_j_knn, col = "green", lwd = 2, lty = 2)
+
+# Step 7: Annotate the optimal threshold on the plot
+abline(v = optimal_alpha_knn, col = "purple", lty = 2)
+text(optimal_alpha_knn, optimal_youden_j_knn, 
+     paste0("Optimal Threshold: ", optimal_alpha_knn), 
+     pos = 4, col = "purple")
+
+# Step 8: Add a legend
+legend("topright", legend = c("TPR", "FPR", "Youden's J"),
+       col = c("blue", "red", "green"), lty = c(1, 1, 2), lwd = 2)
+
+threshold_data_knn <- cbind(alpha_knn, tpr_knn, fpr_knn, youden_j_knn); threshold_data_knn
 
 

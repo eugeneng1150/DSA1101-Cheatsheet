@@ -511,16 +511,16 @@ cat("Highest precision: ", max(depth_precisions), "\n")
 
 
 
-#-------STEP 2: PREDICT USING BEST DEPTH------
+#-------STEP 2: PREDICT USING BEST DEPTH ON A FEW ROWS------
 # After finding the best depth from cross-validation
-best_depth <- which.max(depth_accuracies)  # Assuming you already calculated this
+best_depth_precision <- which.max(depth_precisions)  # Assuming you already calculated this
 
 # Train the final model on the entire dataset using the best max depth
 final_model <- rpart(subscribed ~ job + marital + education + default + housing + 
                        loan + contact + poutcome, 
                      data = bank_data, 
                      method = "class",
-                     control = rpart.control(maxdepth = best_depth))
+                     control = rpart.control(maxdepth = best_depth_precision))
 
 levels(bank_data$subscribed)
 bank_data$subscribed <- factor(bank_data$subscribed, levels = c("no", "yes"))
@@ -542,6 +542,40 @@ predictions <- predict(final_model, new_data, type = "class")
 
 # Print the predictions for each row
 print(predictions)
+
+
+
+################ STEP 2 PREDICT ON THE ENTIRE DATASET##########
+# Remove the 'subscribed' column from bank_data for prediction purposes
+bank_data_features <- bank_data[, !names(bank_data) %in% "subscribed"]
+
+
+# Step 1: Predict on the dataset without the response variable using the final model
+predictions_entire <- predict(final_model, bank_data_features, type = "class")
+
+# Step 2: Create a confusion matrix by comparing predictions to actual values
+conf_matrix <- table(Predicted = predictions_entire, Actual = bank_data$subscribed)
+print(conf_matrix)
+
+# Step 3: Calculate accuracy
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+cat("Accuracy:", accuracy, "\n")
+
+# Step 4: Calculate Type I and Type II errors
+# Type I error (False Positive Rate): Predicting "yes" when actual is "no"
+type_1_error <- conf_matrix["yes", "no"] / sum(conf_matrix[, "no"])
+
+# Type II error (False Negative Rate): Predicting "no" when actual is "yes"
+type_2_error <- conf_matrix["no", "yes"] / sum(conf_matrix[, "yes"])
+
+cat("Type I Error (False Positive Rate):", type_1_error, "\n")
+cat("Type II Error (False Negative Rate):", type_2_error, "\n")
+
+# Step 5: Calculate Precision
+# Precision: True Positives / (True Positives + False Positives)
+precision <- conf_matrix["yes", "yes"] / sum(conf_matrix["yes", ])
+cat("Precision:", precision, "\n")
+
 
 #----------------WHAT ARE THE IMPT FEATURES OF THE TREE-------------
 iris <- read.csv("iris.csv")
@@ -581,74 +615,74 @@ library(ROCR)   # ROC and AUC
 
 # 1) Train the Decision Tree model using selected features
 features <- c("job", "marital", "education", "default", 
-              "housing", "loan", "contact", "poutcome")
+              "housing", "loan", "contact", "poutcome") # CHANGE THIS
 
-fit <- rpart(subscribed ~ .,  
-             data = bankdata[, c(features, "subscribed")], 
-             method = "class",
-             control = rpart.control(minsplit = 1),  
-             parms = list(split = 'information'))
+fit_dt <- rpart(subscribed ~ .,  # CAN LEAVE THE . SINCE WE CONTROL THE FEATURES
+                data = bankdata[, c(features, "subscribed")],  # include response
+                method = "class",
+                control = rpart.control(minsplit = 1),  
+                parms = list(split = 'information'))
 
 # 2) Predict probabilities for the positive class ("yes")
-prob <- predict(fit, newdata = bankdata[, features], type = "prob")[, 2]
+prob_dt <- predict(fit_dt, newdata = bankdata[, features], type = "prob")[,2]
 
 # 3) Generate ROC performance objects
-pred <- prediction(prob, bankdata$subscribed)
-roc <- performance(pred, "tpr", "fpr")
-auc <- performance(pred, "auc")
+pred_dt <- prediction(prob_dt, bankdata$subscribed)
+roc_dt <- performance(pred_dt, "tpr", "fpr")
+auc_dt <- performance(pred_dt, "auc")
 
 # 4) Extract and print the AUC value
-auc_value <- round(auc@y.values[[1]], 4)
-cat("AUC:", auc_value, "\n")
+auc_dt_value <- round(auc_dt@y.values[[1]], 4)
+cat("AUC (Decision Tree):", auc_dt_value, "\n")
 
 # 5) Plot the ROC curve with AUC in the title
-plot(roc, col = "red", lwd = 2,
-     main = paste("ROC Curve (AUC =", auc_value, ")"),
+plot(roc_dt, col = "red", lwd = 2,
+     main = paste("ROC Curve (AUC =", auc_dt_value, ")"),
      xlab = "False Positive Rate (FPR)", ylab = "True Positive Rate (TPR)")
 
 # 6) Add a diagonal reference line (random guessing line)
 abline(a = 0, b = 1, lty = 2, col = "gray")
 
-# -----------------------------------------
+# --------------------------------------------------------------------
 # Threshold Performance Curve
-# -----------------------------------------
+# -------------------------------------------------------------
 
 # 7) Extract alpha (threshold), FPR, and TPR values from ROC object
-alpha <- round(as.numeric(unlist(roc@alpha.values)), 4)  # Thresholds (alpha values)
-fpr <- round(as.numeric(unlist(roc@x.values)), 4)        # False Positive Rate (FPR)
-tpr <- round(as.numeric(unlist(roc@y.values)), 4)        # True Positive Rate (TPR)
+alpha_dt <- round(as.numeric(unlist(roc_dt@alpha.values)), 4)  # Thresholds (alpha values)
+fpr_dt <- round(as.numeric(unlist(roc_dt@x.values)), 4)        # False Positive Rate (FPR)
+tpr_dt <- round(as.numeric(unlist(roc_dt@y.values)), 4)        # True Positive Rate (TPR)
 
-# 8) Calculate G-Mean for each threshold
-gmean <- sqrt(tpr * (1 - fpr))  # G-Mean = sqrt(TPR * TNR)
+# 8) Calculate Youden's J statistic for each threshold (Youden's J = TPR - FPR)
+youden_dt <- tpr_dt - fpr_dt  # Youden's J
 
-# 9) Identify the optimal threshold based on the maximum G-Mean
-optimal_index <- which.max(gmean)  # Index of max G-Mean
-optimal_threshold <- alpha[optimal_index]  # Optimal alpha value
-optimal_gmean <- gmean[optimal_index]  # Max G-Mean value
+# 9) Identify the optimal threshold based on the maximum Youden's J
+optimal_index_dt <- which.max(youden_dt)  # Index of max Youden's J
+optimal_threshold_dt <- alpha_dt[optimal_index_dt]  # Optimal threshold (alpha value)
+optimal_youden_dt <- youden_dt[optimal_index_dt]    # Max Youden's J value
 
-cat("Optimal Threshold (G-Mean):", optimal_threshold, "\n")
+cat("Optimal Threshold (Youden's J):", optimal_threshold_dt, "\n")
 
 # 10) Adjust margins to fit multiple axes properly
-par(mar = c(5, 5, 4, 5))  # Adjust the margins
+par(mar = c(5, 5, 4, 5))  # Adjust margins
 
 # 11) Plot TPR vs. Alpha on the left y-axis
-plot(alpha, tpr, type = "l", col = "blue", lwd = 2, 
+plot(alpha_dt, tpr_dt, type = "l", col = "blue", lwd = 2, 
      xlab = "Alpha (Threshold)", ylab = "True Positive Rate (TPR)", 
-     main = "TPR, FPR, and G-Mean vs Alpha", ylim = c(0, 1))
+     main = "TPR, FPR, and Youden's J vs Alpha", ylim = c(0, 1))
 
 # 12) Overlay FPR vs. Alpha on the right y-axis
 par(new = TRUE)  # Overlay FPR plot
-plot(alpha, fpr, type = "l", col = "red", lwd = 2, 
+plot(alpha_dt, fpr_dt, type = "l", col = "red", lwd = 2, 
      axes = FALSE, xlab = "", ylab = "", ylim = c(0, 1))
 axis(side = 4)
 mtext("False Positive Rate (FPR)", side = 4, line = 3, col = "red")
 
-# 13) Overlay G-Mean vs. Alpha on the same plot
-lines(alpha, gmean, col = "green", lwd = 2, lty = 2)
+# 13) Overlay Youden's J vs. Alpha on the same plot
+lines(alpha_dt, youden_dt, col = "green", lwd = 2, lty = 2)
 
-# 14) Annotate the optimal threshold on the G-Mean curve
-text(optimal_threshold, optimal_gmean, 
-     paste0("Optimal: ", optimal_threshold), 
+# 14) Annotate the optimal threshold on the Youden's J curve
+text(optimal_threshold_dt, optimal_youden_dt, 
+     paste0("Optimal: ", optimal_threshold_dt), 
      col = "green", pos = 4)
 
 # 15) Add labels near the TPR and FPR curves
@@ -656,16 +690,11 @@ text(0.2, 0.2, "FPR", col = "red", pos = 4)
 text(0.7, 0.7, "TPR", col = "blue", pos = 4)
 
 # 16) Optional: Add a legend to distinguish curves
-legend("topright", legend = c("TPR", "FPR", "G-Mean"), 
+legend("topright", legend = c("TPR", "FPR", "Youden's J"), 
        col = c("blue", "red", "green"), lty = c(1, 1, 2), lwd = 2)
 
-
-
-
-# Check unique probabilities and their counts
-unique_probs <- unique(prob)
-cat("Number of unique probabilities:", length(unique_probs), "\n")
-print(unique_probs)
+youden_dt <- tpr_dt - fpr_dt
+threshold_data_dt <- cbind(alpha_dt, tpr_dt, fpr_dt, youden_dt); threshold_data_dt
 
 
 

@@ -18,6 +18,7 @@
 # MANUAL CALCULATION OF NAIVE BAYES
 data <- read.csv("sample1.csv")
 head(data)
+data
 library(e1071)
 traindata <- as.data.frame(data[1:14,]) #first 14 rows
 testdata <- as.data.frame(data[15,]) # the 15th row
@@ -72,104 +73,111 @@ prob_yes / (prob_yes + prob_no) # gives probability of Y = 1, Enrolled
 
 ##################### Using e1071 to predict ########################
 # predict(NB, "raw") --> use to build ROC curve
+
+data <- read.table("sample1.csv",header=TRUE,sep=",")
+head(data)
+traindata <- as.data.frame(data[1:14,])
+testdata <- as.data.frame(data[15,])
+testdata
 library(e1071)
 model <- naiveBayes(Enrolls ~ Age + Income + JobSatisfaction + Desire, traindata)
 results = predict(model, testdata, "raw"); results # to get raw probabilities
 results[2] / results[1] # ratio of yes and no
 results = predict(model, testdata, "class")
 results
-data$Enrolls[data$Enrolls == ""] <- "Yes"
+# Convert the 'Enrolls' column to character to make replacement easier
+data$Enrolls <- as.character(data$Enrolls)
+
+# Replace empty strings or whitespace-only strings with "Yes"
+data$Enrolls[trimws(data$Enrolls) == ""] <- "Yes"
+data
 
 # build ROC curve
-# Load necessary libraries
+# Load required libraries
 library(e1071)  # Naive Bayes model
 library(ROCR)   # ROC curve and AUC calculation
 
 # 1) Train the Naive Bayes model
-model <- naiveBayes(Enrolls ~ Age + Income + JobSatisfaction + Desire, data = data)
+model_nb <- naiveBayes(Enrolls ~ Age + Income + JobSatisfaction + Desire, data = data)
 
 # 2) Predict raw probabilities on the entire dataset
-probabilities <- predict(model, data, type = "raw")
+prob_nb <- predict(model_nb, data, type = "raw")[, 2]  # Extract probabilities for "Yes" class
 
-# 3) Extract probabilities for the positive class (e.g., "Yes")
-positive_probs <- probabilities[, 2]  # Assuming "Yes" is the second column
+# 3) Generate ROC performance objects for Naive Bayes
+pred_nb <- prediction(prob_nb, data$Enrolls)
+roc_nb <- performance(pred_nb, "tpr", "fpr")
+auc_nb <- performance(pred_nb, "auc")
 
-# 4) Create a prediction object for the ROC curve
-roc <- prediction(positive_probs, data$Enrolls)
+# 4) Extract and print the AUC value
+auc_nb_value <- round(auc_nb@y.values[[1]], 4)
+cat("AUC (Naive Bayes):", auc_nb_value, "\n")
 
-# 5) Generate the performance object for the ROC curve
-perf <- performance(roc, "tpr", "fpr")
+# 5) Plot the ROC curve with AUC in the title
+plot(roc_nb, col = "blue", lwd = 2,
+     main = paste("ROC Curve (AUC =", auc_nb_value, ")"),
+     xlab = "False Positive Rate (FPR)", ylab = "True Positive Rate (TPR)")
 
-# 6) Calculate AUC value
-auc_value <- performance(roc, "auc")@y.values[[1]]
+# 6) Add a diagonal reference line (random guessing line)
+abline(a = 0, b = 1, lty = 2, col = "gray")
 
-# 7) Plot the ROC curve with AUC value in the title
-plot(perf, col = "blue", lwd = 2, 
-     main = paste0("ROC Curve (AUC = ", round(auc_value, 4), ")"),
-     xlab = "False Positive Rate", ylab = "True Positive Rate")
-abline(a = 0, b = 1, lty = 2, col = "gray")  # Diagonal reference line
+# --------------------------------------------------------------------
+# Threshold Performance Curve for Naive Bayes
+# --------------------------------------------------------------------
 
-# -----------------------------------------
-# Part 2: Plot Threshold vs. TPR/FPR/G-Mean Graph
-# -----------------------------------------
-# 1) Generate performance objects for TPR, FPR, and thresholds
-tpr_perf <- performance(roc, "tpr", "cutoff")
-fpr_perf <- performance(roc, "fpr", "cutoff")
+# 7) Extract alpha (threshold), FPR, and TPR values from ROC object
+alpha_nb <- round(as.numeric(unlist(roc_nb@alpha.values)), 4)  # Thresholds (alpha values)
+fpr_nb <- round(as.numeric(unlist(roc_nb@x.values)), 4)        # False Positive Rate (FPR)
+tpr_nb <- round(as.numeric(unlist(roc_nb@y.values)), 4)        # True Positive Rate (TPR)
 
-# 2) Extract and round thresholds (alpha), TPR, and FPR values to 4 decimal places
-alpha <- round(tpr_perf@x.values[[1]], 4)  # Thresholds (cutoffs)
-tpr <- round(tpr_perf@y.values[[1]], 4)    # True positive rates (TPR)
-fpr <- round(fpr_perf@y.values[[1]], 4)    # False positive rates (FPR)
+# 8) Calculate Youden's J statistic for each threshold (Youden's J = TPR - FPR)
+youden_nb <- tpr_nb - fpr_nb  # Youden's J
 
-# 3) Calculate G-Mean for each threshold
-gmean <- sqrt(tpr * (1 - fpr))  # G-Mean formula
+# 9) Identify the optimal threshold based on the maximum Youden's J
+optimal_index_nb <- which.max(youden_nb)  # Index of max Youden's J
+optimal_threshold_nb <- alpha_nb[optimal_index_nb]  # Optimal threshold (alpha value)
+optimal_youden_nb <- youden_nb[optimal_index_nb]    # Max Youden's J value
 
-# 4) Identify the optimal threshold based on the maximum G-Mean
-optimal_index <- which.max(gmean)  # Index of max G-Mean
-optimal_threshold <- alpha[optimal_index]  # Optimal threshold rounded to 4dp
-optimal_gmean <- round(gmean[optimal_index], 4)  # Max G-Mean value
+cat("Optimal Threshold (Youden's J):", optimal_threshold_nb, "\n")
 
-cat("Optimal Threshold (G-Mean):", optimal_threshold, "\n")
+# 10) Adjust margins to fit multiple axes properly
+par(mar = c(5, 5, 4, 5))  # Adjust margins
 
-# 5) Set consistent y-axis limits for TPR and FPR
-y_limit <- range(0, 1)  # Ensure all metrics fit within [0, 1]
+# 11) Plot TPR vs. Alpha on the left y-axis
+plot(alpha_nb, tpr_nb, type = "l", col = "blue", lwd = 2, 
+     xlab = "Alpha (Threshold)", ylab = "True Positive Rate (TPR)", 
+     main = "TPR, FPR, and Youden's J vs Alpha (Naive Bayes)", ylim = c(0, 1))
 
-# 6) Adjust margins to fit multiple axes properly
-par(mar = c(5, 5, 2, 5))  # Adjust the margins (change if needed)
-
-# 7) Plot TPR vs. Threshold on the left y-axis
-plot(alpha, tpr, type = "l", col = "blue", lwd = 2, 
-     xlab = "Threshold", ylab = "True Positive Rate (TPR)", 
-     xlim = c(0, 1), ylim = y_limit, 
-     main = "TPR, FPR, and G-Mean vs Threshold")
-
-# 8) Overlay FPR vs. Threshold with a secondary axis
+# 12) Overlay FPR vs. Alpha on the right y-axis
 par(new = TRUE)  # Overlay FPR plot
-plot(alpha, fpr, type = "l", col = "red", lwd = 2, 
-     axes = FALSE, xlab = "", ylab = "", xlim = c(0, 1), ylim = y_limit)
-
-# 9) Add a secondary axis for FPR on the right side
+plot(alpha_nb, fpr_nb, type = "l", col = "red", lwd = 2, 
+     axes = FALSE, xlab = "", ylab = "", ylim = c(0, 1))
 axis(side = 4)
-mtext("False Positive Rate (FPR)", side = 4, line = 3, col = "black")
+mtext("False Positive Rate (FPR)", side = 4, line = 3, col = "red")
 
-# 10) Overlay G-Mean vs. Threshold with another right-side axis
-par(new = TRUE)  # Overlay G-Mean plot
-plot(alpha, gmean, type = "l", col = "green", lwd = 2, lty = 2, 
-     axes = FALSE, xlab = "", ylab = "", xlim = c(0, 1), ylim = range(gmean))
+# 13) Overlay Youden's J vs. Alpha on the same plot
+lines(alpha_nb, youden_nb, col = "green", lwd = 2, lty = 2)
 
-# 11) Add a third axis for G-Mean on the far right
-axis(side = 4, at = pretty(gmean), col.axis = "green", line = 6, las = 1)
-mtext("G-Mean", side = 4, line = 7, col = "green")
-
-# 12) Annotate the optimal threshold on the G-Mean curve
-text(0.2, 0.6, 
-     paste0("Best Threshold: ", optimal_threshold), 
+# 14) Annotate the optimal threshold on the Youden's J curve
+text(x=0.5, y = 0.6, 
+     paste0("Optimal: ", optimal_threshold_nb), 
      col = "green", pos = 4)
+abline(v = optimal_threshold_nb, col = "purple", lty = 2)
 
-# 13) Add labels near the TPR and FPR curves
-text(0.2, 0.2, "FPR", col = "red", pos = 4)
+# 15) Add labels near the TPR and FPR curves
+text(0.2, 0.4, "FPR", col = "red", pos = 4)
 text(0.7, 0.7, "TPR", col = "blue", pos = 4)
 
-# 14) Optional: Add a legend to distinguish the curves
-legend("topright", legend = c("TPR", "FPR", "G-Mean"), 
+# 16) Optional: Add a legend to distinguish curves
+legend("bottomleft", legend = c("TPR", "FPR", "Youden's J"), 
        col = c("blue", "red", "green"), lty = c(1, 1, 2), lwd = 2)
+
+# 17) Create a data frame to manually inspect the thresholds and performance metrics
+threshold_data_nb <- data.frame(
+  Threshold = alpha_nb,
+  TPR = tpr_nb,
+  FPR = fpr_nb,
+  YoudenJ = youden_nb
+)
+print(threshold_data_nb)
+
+
