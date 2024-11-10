@@ -1,1 +1,2 @@
-Get your A for DSA1101
+Some notes for DSA1101, hope it helps
+
